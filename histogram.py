@@ -17,21 +17,36 @@ class Bucket:
         self.rtree = index.Index(properties=p)
         self.contain_buckets = set()
         self.crid = 0
-        self.rid = 0
         self.feature_id = 0
         self.composed_set = set()
         self.constraints = []  # 该Bucket由哪些约束组成
 
     def add_a_child(self, bucket):
         coordinates = bucket.mins+bucket.maxs
-        bucket.rid = self.crid
+        bucket.parents[self] = self.crid
         self.rtree.insert(self.crid, coordinates)
         self.children[self.crid] = bucket
-        delta_composed = bucket.composed_set - self.composed_set  # 在新添加的Bucket中，但不再已有的bucket
-        delta_composed.add(bucket)
-        self.volume -= np.sum([b.volume for b in delta_composed])
-        self.composed_set |= delta_composed
+        self.volume -= bucket.volume
+        self.composed_set |= bucket.composed_set
+        self.composed_set.add(bucket)
         self.crid += 1
+
+    def add_query(self, input):
+        def add(bucket):
+            coordinates = bucket.mins+bucket.maxs
+            bucket.parents[self] = self.crid
+            self.rtree.insert(self.crid, coordinates)
+            self.children[self.crid] = bucket
+            delta_composed = bucket.composed_set - self.composed_set
+            delta_composed.add(input)
+            self.volume -= np.sum([b.volume for b in delta_composed])
+            self.composed_set |= bucket.composed_set
+            self.crid += 1
+        if isinstance(input, list):
+            for bucket in input:
+                add(bucket)
+        else:
+            add(input)
 
     def add(self, input):
         if isinstance(input, list):
@@ -53,6 +68,17 @@ class Bucket:
 
     def update_constraints(self, new_constraints):
         self.constraints.append(new_constraints)
+
+    def merge_update(self, bucket, bid):
+        children = list(bucket.children.values())
+        self.delete_a_child(bucket, bid)
+        for c in children:
+            coordinates = c.mins+c.maxs
+            c.parents[self] = self.crid
+            self.rtree.insert(self.crid, coordinates)
+            self.children[self.crid] = bucket
+            self.composed_set |= bucket.composed_set
+            self.crid += 1
 
 
 def cacl_volume(mins, maxs):
@@ -114,10 +140,10 @@ def are_disjoint(a, b):
 p = index.Property()
 
 
-def find_father(query, root) -> Bucket:
+def find_parent(query, root) -> Bucket:
     for child in root.children.values():
         if are_contain(child, query):
-            return find_father(query, child)
+            return find_parent(query, child)
         elif not are_disjoint(child, query):
             return root
     return root
@@ -143,39 +169,53 @@ def intersect_with_children(root: Bucket, query: Bucket):
     return overlaps, contains
 
 
+def are_floats_equal(float1, float2, epsilon=1e-9):
+    return abs(float1 - float2) < epsilon
+
+
+def is_close_to_zero(float_num, epsilon=1e-9):
+    return abs(float_num) < epsilon
+
+
 def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int,):
     # 处理overlap相关，这里的overlap被设计为一个查询，该查询被包含在root里，feature_id是当前处理约束的序号，用来标记已经处理过的Bucket
-    father = find_father(query, root)
-    if father.feature_id == feature_id:
-        # 在其他的overlap中已经被检查过了，所以跳过
+    parent = find_parent(query, root)
+    if parent.feature_id == feature_id:
         # 这涉及到先处理了一个较大的overlap,再处理一个被包含的overlap。因为在处理大的overlap时，小的overlap已经完成处理了，所以此处略去
+        # 或者两个overlap的位置大小都相同
         return []
     else:
-        father.feature_id = feature_id
-        if are_coincide(father, query):
-            return father
-        overlaps, contains = intersect_with_children(father, query)
-        if len(overlaps) == 0 and len(contains) == 0:  # father中没有和这个查询相交或者包含的，则将这个bucket作为father的孩子节点
-            father.add(query)
-            if is_close_to_zero(father.volume):
-                merge_bucket_with_parent(father)
+        parent.feature_id = feature_id
+        if are_coincide(parent, query):
+            # TODO update constraints
+            return parent
+        overlaps, contains = intersect_with_children(parent, query)
+        if len(overlaps) == 0 and len(contains) == 0:  # parent中没有和这个查询相交或者包含的，则将这个bucket作为parent的孩子节点
+            parent.add(query)
+            # TODO update constraints
+            if is_close_to_zero(parent.volume):
+                merge_bucket_with_parent(parent)
             return query
-        # 处理contains,即query包含的一些bucket,如有必要，需要将这些bucket作为query的孩子，并且从father中移除这些bucket
+
+        # 处理contains,即query包含的一些bucket,如有必要，需要将这些bucket作为query的孩子，并且从parent中移除这些bucket
         # overlap contain的bucket不会被query分割，应该也不会被处理（？）为了避免可能的重复操作，还是更新feature_id
         cur_contains = []
         cur_contains_ids = []
         for cid in contains:
-            bucket = root.children[cid]
+            bucket = parent.children[cid]
             cur_contains.append(bucket)
             cur_contains_ids.append(cid)
             bucket.feature_id = feature_id
-            query.add(bucket)
+            query.add_query(bucket)
             if is_close_to_zero(query.volume):
+                assert len(cur_contains) == len(contains)
                 return cur_contains
+        assert len(cur_contains) == len(contains)
+
         checked_overlaps = []
         # 处理overlaps
         for oid in overlaps:
-            bucket = root.children[oid]  # bug!key error?
+            bucket = parent.children[oid]  # bug!key error?
             if are_disjoint(bucket, query):
                 continue
             # 这涉及先处理了一个较小的overlap,然后处理一个包含小overlap的大的overlap,此时小的overlap已经被处理的，不需要再次递归的处理，直接调用小的结果就行
@@ -183,25 +223,17 @@ def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int,):
                 continue
             else:
                 overlap = get_overlap(query, bucket)  # 相交区域
-                overlap.feature_id == feature_id
+                overlap.feature_id = feature_id
                 ret = feed_a_overlap(overlap, bucket, feature_id)
-                query.add(ret)
+                query.add_query(ret)
                 bucket.feature_id = feature_id
                 if is_close_to_zero(query.volume):
                     return cur_contains+checked_overlaps
-        father.delete_contains(cur_contains_ids, cur_contains)
-        father.add(query)
-        if is_close_to_zero(father.volume):
-            merge_bucket_with_parent(father)
+        parent.delete_contains(cur_contains_ids, cur_contains)
+        parent.add(query)
+        if is_close_to_zero(parent.volume):
+            merge_bucket_with_parent(parent)
         return query
-
-
-def are_floats_equal(float1, float2, epsilon=1e-9):
-    return abs(float1 - float2) < epsilon
-
-
-def is_close_to_zero(float_num, epsilon=1e-9):
-    return abs(float_num) < epsilon
 
 
 def feed_a_query(query: Bucket, root: Bucket):
@@ -214,51 +246,71 @@ def feed_a_query(query: Bucket, root: Bucket):
         _type_: _description_
     """
     feature_id = query.feature_id
-    father = find_father(query, root)  # 找到某个Bucket,其包含query,但其字节的不包含query
-    if are_coincide(father, query):
-        query = father
-        father.card = query.card
+    parent = find_parent(query, root)  # 找到某个Bucket,其包含query,但其字节的不包含query
+
+    # S1:query和当前直方图中某个Bucket重合
+    if are_coincide(parent, query):
+        parent.cover_card = query.card
+        parent.constraints.append(feature_id)
+        query = parent  # 定位这个bucket
         return
-    overlaps, contains = intersect_with_children(father, query)  # 从father中找到其直接overlap和contain的Bucket的rid
-    if len(overlaps) == 0 and len(contains) == 0:  # father中没有和这个查询相交或者包含的，则将这个bucket作为father的孩子节点
-        father.add(query)
-        merge_bucket_with_parent(father)
+
+    overlaps, contains = intersect_with_children(parent, query)  # 从parent中找到其直接overlap和contain的Bucket的rid
+
+    # S2:parent中没有和这个查询相交或者包含的，则将这个bucket作为parent的孩子节点
+    if len(overlaps) == 0 and len(contains) == 0:
+        parent.add_a_child(query)
+        if parent.volume == 0:
+            merge_bucket_with_parent(parent)
         return
-    # 处理被query包含的bucket，将这些bucket作为query的孩子，将其从father中去除
+
+    # S3:处理被query包含的bucket，将这些bucket作为query的孩子，将其从parent中去除
     cur_contains = []
     cur_contains_ids = []  # 因为某个bucket的rid可能会更改(被添加到另外一个孩子中)
     for cid in contains:
-        bucket = root.children[cid]
+        bucket = parent.children[cid]
+        bucket.constraints.append(feature_id)
         cur_contains.append(bucket)
         cur_contains_ids.append(cid)
-        query.add(bucket)
+        query.add_query(bucket)
         if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
+            assert len(cur_contains) == len(contains)
             return
-    # 处理和query相交的bucket
+    assert len(cur_contains) == len(contains)
+
+    # S4:处理和query相交的bucket
     for oid in overlaps:
-        bucket = root.children[oid]
-        if are_disjoint(bucket, query):
+        bucket = parent.children[oid]
+        if are_disjoint(bucket, query):  # rtree实现的overlap似乎和我们的overlap有歧义，仅仅边相交的，我们不当作overlap
             continue
         overlap = get_overlap(query, bucket)  # 相交区域
         overlap.feature_id = feature_id
         ret = feed_a_overlap(overlap, bucket, feature_id)
-        query.add(ret)
+        query.add_query(ret)
         if is_close_to_zero(query.volume):
             return
 
-    # 最终overlaps和contains都没有填充query，则将query添加为father的孩子，并将father中被query包含的孩子转换为query的孩子
-    father.delete_contains(cur_contains_ids, cur_contains)
-    father.add(query)
-    if is_close_to_zero(father.volume):
-        merge_bucket_with_parent(father)
+    # 最终overlaps和contains都没有填充query，则将query添加为parent的孩子，并将parent中被query包含的孩子转换为query的孩子
+    parent.delete_contains(cur_contains_ids, cur_contains)
+    parent.add(query)
+    if is_close_to_zero(parent.volume):
+        merge_bucket_with_parent(parent)
     return
 
 
 def merge_bucket_with_parent(bucket: Bucket):
-    print("Merge")
-    for parent in bucket.parents:
-        parent.delete_a_child(bucket)
-        parent.add(list(bucket.children.values()))
+    """当该某个Bucket由他的孩子Bucket全部填充,则删除这个Bucket,并将其孩子节点添加到其父节点中
+    Args:
+        bucket (Bucket):要被merge的节点
+    """
+    if bucket.parents:  # 如果没有父节点则跳过（root）
+        # 删除其孩子节点的父节点中有关bucket的信息
+        for child in bucket.children:
+            del child.parents[bucket]
+
+        # 将其孩子节点添加到bucket的父节点中
+        for parent, bid in bucket.parents.items():
+            parent.merge_update(bid, bucket)
 
 
 def construct_histogram(queries, mins, maxs, num_tuples):
@@ -305,4 +357,4 @@ def test():
     return hist
 
 
-# test()
+test()
