@@ -9,7 +9,9 @@ class Bucket:
         self.mins = mins
         self.maxs = maxs
         self.card = card
+        self.cover_card = card
         self.children = dict()
+        self.parents = dict()
         self.volume = cacl_volume(mins, maxs)
         self.density = self.card/self.volume
         self.rtree = index.Index(properties=p)
@@ -17,7 +19,6 @@ class Bucket:
         self.crid = 0
         self.rid = 0
         self.feature_id = 0
-
         self.composed_set = set()
         self.constraints = []  # 该Bucket由哪些约束组成
 
@@ -39,7 +40,9 @@ class Bucket:
         else:
             self.add_a_child(input)
 
-    def delete_a_child(self, bucket, bid):
+    def delete_a_child(self, bucket, bid=None):
+        if bid == None:
+            bid = list(self.children.keys())[list(self.children.values()).index(bucket)]
         coordinates = bucket.mins+bucket.maxs
         self.rtree.delete(bid, coordinates)
         del self.children[bid]
@@ -71,7 +74,7 @@ def get_overlap(a, b):
     # 两个超立方体重叠部分
     mins = [max(a_m, b_m) for a_m, b_m in zip(a.mins, b.mins)]
     maxs = [min(a_m, b_m) for a_m, b_m in zip(a.maxs, b.maxs)]
-    overlap = Bucket(mins, maxs, 0)
+    overlap = Bucket(mins, maxs, 1)
     return overlap
 
 
@@ -140,7 +143,7 @@ def intersect_with_children(root: Bucket, query: Bucket):
     return overlaps, contains
 
 
-def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int, top: Bucket):
+def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int,):
     # 处理overlap相关，这里的overlap被设计为一个查询，该查询被包含在root里，feature_id是当前处理约束的序号，用来标记已经处理过的Bucket
     father = find_father(query, root)
     if father.feature_id == feature_id:
@@ -155,7 +158,7 @@ def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int, top: Bucket):
         if len(overlaps) == 0 and len(contains) == 0:  # father中没有和这个查询相交或者包含的，则将这个bucket作为father的孩子节点
             father.add(query)
             if is_close_to_zero(father.volume):
-                merge_bucket_with_parent(father, top, query)
+                merge_bucket_with_parent(father)
             return query
         # 处理contains,即query包含的一些bucket,如有必要，需要将这些bucket作为query的孩子，并且从father中移除这些bucket
         # overlap contain的bucket不会被query分割，应该也不会被处理（？）为了避免可能的重复操作，还是更新feature_id
@@ -172,16 +175,16 @@ def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int, top: Bucket):
         checked_overlaps = []
         # 处理overlaps
         for oid in overlaps:
-            bucket = root.children[oid]
-            if are_contain(bucket, query):
+            bucket = root.children[oid]  # bug!key error?
+            if are_disjoint(bucket, query):
                 continue
             # 这涉及先处理了一个较小的overlap,然后处理一个包含小overlap的大的overlap,此时小的overlap已经被处理的，不需要再次递归的处理，直接调用小的结果就行
-            if bucket.featrue_id == feature_id:
+            if bucket.feature_id == feature_id:
                 continue
             else:
                 overlap = get_overlap(query, bucket)  # 相交区域
                 overlap.feature_id == feature_id
-                ret = feed_a_overlap(overlap, bucket, feature_id, top)
+                ret = feed_a_overlap(overlap, bucket, feature_id)
                 query.add(ret)
                 bucket.feature_id = feature_id
                 if is_close_to_zero(query.volume):
@@ -189,7 +192,7 @@ def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int, top: Bucket):
         father.delete_contains(cur_contains_ids, cur_contains)
         father.add(query)
         if is_close_to_zero(father.volume):
-            merge_bucket_with_parent(father, top, query)
+            merge_bucket_with_parent(father)
         return query
 
 
@@ -213,11 +216,13 @@ def feed_a_query(query: Bucket, root: Bucket):
     feature_id = query.feature_id
     father = find_father(query, root)  # 找到某个Bucket,其包含query,但其字节的不包含query
     if are_coincide(father, query):
+        query = father
+        father.card = query.card
         return
     overlaps, contains = intersect_with_children(father, query)  # 从father中找到其直接overlap和contain的Bucket的rid
     if len(overlaps) == 0 and len(contains) == 0:  # father中没有和这个查询相交或者包含的，则将这个bucket作为father的孩子节点
         father.add(query)
-        merge_bucket_with_parent(father, root, query)
+        merge_bucket_with_parent(father)
         return
     # 处理被query包含的bucket，将这些bucket作为query的孩子，将其从father中去除
     cur_contains = []
@@ -232,11 +237,11 @@ def feed_a_query(query: Bucket, root: Bucket):
     # 处理和query相交的bucket
     for oid in overlaps:
         bucket = root.children[oid]
-       
-       
+        if are_disjoint(bucket, query):
+            continue
         overlap = get_overlap(query, bucket)  # 相交区域
         overlap.feature_id = feature_id
-        ret = feed_a_overlap(overlap, bucket, feature_id, root)
+        ret = feed_a_overlap(overlap, bucket, feature_id)
         query.add(ret)
         if is_close_to_zero(query.volume):
             return
@@ -245,21 +250,20 @@ def feed_a_query(query: Bucket, root: Bucket):
     father.delete_contains(cur_contains_ids, cur_contains)
     father.add(query)
     if is_close_to_zero(father.volume):
-        merge_bucket_with_parent(father, root, query)
+        merge_bucket_with_parent(father)
     return
 
 
-def merge_bucket_with_parent(bucket: Bucket, root: Bucket, query: Bucket):
-    if bucket == root:
-        return
-    father = find_father(bucket, root)
-    father.delete_a_child(bucket, bucket.rid)
-    father.add(query)
+def merge_bucket_with_parent(bucket: Bucket):
+    print("Merge")
+    for parent in bucket.parents:
+        parent.delete_a_child(bucket)
+        parent.add(list(bucket.children.values()))
 
 
 def construct_histogram(queries, mins, maxs, num_tuples):
-    root_bucket = Bucket(mins, maxs, num_tuples)
     p.dimension = len(queries[0].mins)
+    root_bucket = Bucket(mins, maxs, num_tuples)
     print("Start Generate the Histogram ")
     start = time.time()
     input_buckets = [Bucket(q.mins, q.maxs, q.card)for q in queries]
@@ -268,7 +272,7 @@ def construct_histogram(queries, mins, maxs, num_tuples):
     num_buckets = len(input_buckets)
     #gis_solver = Generalized_Iterative_Scaling()
     for i, bucket in enumerate(input_buckets):
-        if i % 100 == 0:
+        if i % 10 == 0:
             print(f"Construct Histogram Step [{i+1}/{num_buckets}]")
         bucket.feature_id = i
         feed_a_query(bucket, root_bucket)
@@ -301,4 +305,4 @@ def test():
     return hist
 
 
-test()
+# test()
