@@ -1,13 +1,20 @@
+from typing import List, Dict
 from debug import draw_tree
 import numpy as np
 from rtree import index
 import time
 
+global_buckets_rtree = index.Index()
+
+global_queries_rtree = index.Index()
+
+global_buckets_dict = dict()
 
 class Bucket:
     def __init__(self, mins, maxs, card=0):
         self.mins = mins
         self.maxs = maxs
+        self.coordinates = mins+maxs
         self.card = card
         self.cover_card = card
         self.children = dict()
@@ -18,17 +25,20 @@ class Bucket:
         self.contain_buckets = set()
         self.crid = 0
         self.feature_id = 0
-        self.composed_set = set()
         self.constraints = []  # 该Bucket由哪些约束组成
 
     def add_a_child(self, bucket):
+        global global_buckets_rtree,global_buckets_dict
         coordinates = bucket.mins+bucket.maxs
         bucket.parents[self] = self.crid
         self.rtree.insert(self.crid, coordinates)
         self.children[self.crid] = bucket
+        
+        src_composed = set(global_buckets_rtree.contains(self.coordinates))
+        dest_composed = set(global_buckets_rtree.contains(bucket.coordinates))
+        
+        
         self.volume -= bucket.volume
-        self.composed_set |= bucket.composed_set
-        self.composed_set.add(bucket)
         self.crid += 1
 
     def add_query(self, input):
@@ -246,7 +256,8 @@ def feed_a_overlap(query: Bucket, root: Bucket, feature_id: int,):
                 query.add_query(ret)
                 bucket.feature_id = feature_id
                 if is_close_to_zero(query.volume):
-                    assert len(checked_overlaps) == len(list(tmp_overlap_buckets.values()))
+                    assert len(checked_overlaps) == len(
+                        list(tmp_overlap_buckets.values()))
                     return cur_contains+checked_overlaps
 
         parent.delete_contains(cur_contains_ids, cur_contains)
@@ -360,8 +371,21 @@ def delete_zero():
     pass
 
 
+
+
+
+def gen_global_rtree(buckets: List[Bucket]):
+    global global_queries_rtree
+    for i, bucket in enumerate(buckets):
+        coordinates = bucket.mins+bucket.maxs
+        global_queries_rtree.insert(i, coordinates)
+
+
 def construct_histogram(queries, mins, maxs, num_tuples):
     p.dimension = len(queries[0].mins)
+    global global_buckets_rtree, global_queries_rtree
+    global_buckets_rtree.properties = p
+    global_queries_rtree.properties = p
     root_bucket = Bucket(mins, maxs, num_tuples)
     print("Start Generate the Histogram ")
     start = time.time()
@@ -369,13 +393,16 @@ def construct_histogram(queries, mins, maxs, num_tuples):
     input_buckets = deduplicate(input_buckets)  # 删除重复的Bucket
     input_buckets.sort(key=lambda x: x.density)  # 按照密度对Bucket进行排序，密度大的在最后
     num_buckets = len(input_buckets)
+    gen_global_rtree(input_buckets)
     # gis_solver = Generalized_Iterative_Scaling()
     for i, bucket in enumerate(input_buckets):
         if i % 10 == 0:
             print(f"Construct Histogram Step [{i+1}/{num_buckets}]")
         bucket.feature_id = i
         feed_a_query(bucket, root_bucket)
-
+        # iter()
+        # freq()
+        # delete_zero()
     end = time.time()
     print("Generate Hisogram Time Cost:{}".format(end-start))
     return root_bucket
