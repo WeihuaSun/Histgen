@@ -40,7 +40,7 @@ def tratree(tree,ax,children_list):
     rect = plt.Rectangle(site,high,width,
                              alpha = 0.1,fill=True,lw=1,edgecolor = 'black',fc = clos[len(children_list)%4])
     ax.add_patch(rect)
-    for child in tree.children.values():
+    for child in tree.children:
         tratree(child,ax,children_list)
     
 
