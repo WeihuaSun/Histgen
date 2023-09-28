@@ -50,12 +50,14 @@ def intersect_with_children(root: Bucket, query: Bucket):
 
 
 def feed_a_overlap(query: Bucket, root: Bucket):
+    global global_buckets_rtree, global_buckets_dict
     parent = find_parent(query, root)
     if are_coincide(parent, query):
         return parent
     overlaps, contains = intersect_with_children(parent, query)
     # parent中没有和这个查询相交或者包含的，则将这个bucket作为parent的孩子节点
     if len(overlaps) == 0 and len(contains) == 0:
+        add_global_bucket(query)
         parent.add_for_overlap(query)
         if is_close_to_zero(parent.volume):
             merge_bucket_with_parent(parent)
@@ -67,10 +69,10 @@ def feed_a_overlap(query: Bucket, root: Bucket):
     for cid in contains:
         bucket = parent.children[cid]
         cur_contains.append(bucket)
-    global global_buckets_rtree, global_buckets_dict
+
     query.add_for_query(cur_contains, global_buckets_rtree, global_buckets_dict)
     if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
-        return
+        return query
 
     # S4:处理和query相交的bucket
     tmp_rtree = index.Index(properties=p)
@@ -99,35 +101,40 @@ def feed_a_overlap(query: Bucket, root: Bucket):
             composed += ret
         else:
             composed.append(ret)
-    global global_buckets_rtree, global_buckets_dict
-    query.add_for_query(composed, global_buckets_rtree, global_buckets_dict)
-    if is_close_to_zero(query.volume):
-        return cur_contains+composed
+    if composed:
+        query.add_for_query(composed, global_buckets_rtree, global_buckets_dict)
+        if is_close_to_zero(query.volume):
+            return cur_contains+composed
 
     parent.delete_contains(contains, cur_contains)
+    add_global_bucket(query)
     parent.add_for_overlap(query)
     if is_close_to_zero(parent.volume):
         merge_bucket_with_parent(parent)
     return query
 
 
-def add_global_buckets():
+def add_global_bucket(bucket):
     global global_buckets_dict, global_buckets_rtree, identifier
+    global_buckets_rtree.insert(identifier, bucket.coordinates)
+    global_buckets_dict[identifier] = bucket
+    identifier += 1
 
 
 def feed_a_query(query: Bucket, root: Bucket):
+    global global_buckets_rtree, global_buckets_dict
     parent = find_parent(query, root)  # 找到某个Bucket,其包含query,但其字节的不包含query
     # S1:query和当前直方图中某个Bucket重合
     if are_coincide(parent, query):
         parent.cover_card = query.card
         query = parent  # 定位这个bucket
         return
-
     overlaps, contains = intersect_with_children(
         parent, query)  # 从parent中找到其直接overlap和contain的Bucket的rid
 
     # S2:parent中没有和这个查询相交或者包含的，则将这个bucket作为parent的孩子节点
     if len(overlaps) == 0 and len(contains) == 0:
+        add_global_bucket(query)
         parent.add_for_overlap(query)
         if is_close_to_zero(parent.volume):
             merge_bucket_with_parent(parent)
@@ -138,7 +145,7 @@ def feed_a_query(query: Bucket, root: Bucket):
     for cid in contains:
         bucket = parent.children[cid]
         cur_contains.append(bucket)
-    global global_buckets_rtree, global_buckets_dict
+
     query.add_for_query(cur_contains, global_buckets_rtree, global_buckets_dict)
     if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
         return
@@ -161,8 +168,9 @@ def feed_a_query(query: Bucket, root: Bucket):
         valid_overlaps.append((overlap, bucket))
         this_contains = list(tmp_rtree.contains(overlap.coordinates))
         for id in this_contains:
-            (doverlap, dbucket) = overlaps_sorted.pop(id)
-            tmp_rtree.delete(id, doverlap.coordinates)
+            if id != oid:
+                (doverlap, dbucket) = overlaps_sorted.pop(id)
+                tmp_rtree.delete(id, doverlap.coordinates)
     composed = []
     for overlap, bucket in valid_overlaps:
         ret = feed_a_overlap(overlap, bucket)
@@ -170,13 +178,13 @@ def feed_a_query(query: Bucket, root: Bucket):
             composed += ret
         else:
             composed.append(ret)
-    global global_buckets_rtree, global_buckets_dict
     query.add_for_query(composed, global_buckets_rtree, global_buckets_dict)
     if is_close_to_zero(query.volume):
         return
 
     # 最终overlaps和contains都没有填充query，则将query添加为parent的孩子，并将parent中被query包含的孩子转换为query的孩子
     parent.delete_contains(contains, cur_contains)
+    add_global_bucket(query)
     parent.add_for_overlap(query)
     if is_close_to_zero(parent.volume):
         merge_bucket_with_parent(parent)
@@ -232,8 +240,7 @@ def construct_histogram(queries, mins, maxs, num_tuples):
     gen_global_rtree(input_buckets)
     # gis_solver = Generalized_Iterative_Scaling()
     for i, bucket in enumerate(input_buckets):
-        if i % 10 == 0:
-            print(f"Construct Histogram Step [{i+1}/{num_buckets}]")
+        print(f"Construct Histogram Step [{i+1}/{num_buckets}]")
         feed_a_query(bucket, root_bucket)
         # iter()
         # freq()

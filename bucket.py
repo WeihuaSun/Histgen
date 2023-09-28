@@ -28,9 +28,9 @@ class Bucket:
         for b in input:
             add(b)
         # update volume
-
         contains = set(list(global_buckets_rtree.contains(self.coordinates)))
-        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
+        self.volume = self.cover_volume - \
+            np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
         # self.composed_ids = contains
 
     def add_for_overlap(self, input):

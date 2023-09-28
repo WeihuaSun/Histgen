@@ -7,7 +7,7 @@ from pathlib import Path
 
 import constants
 from queryplan import get_plan
-from histogram import construct_histogram
+from histogram_global_rtree import construct_histogram
 
 
 if __name__ == "__main__":
