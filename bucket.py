@@ -28,7 +28,7 @@ class Bucket:
         for b in input:
             self._init_add(b)
         # update volume
-        contains = set(global_buckets_rtree.contains(self.coordinates))&self.children
+        contains = set(global_buckets_rtree.contains(self.coordinates))
         self.volume = self.cover_volume - \
             np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
 

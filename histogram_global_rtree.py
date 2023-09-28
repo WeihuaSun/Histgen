@@ -93,6 +93,9 @@ def feed_a_query(query: Bucket, root: Bucket):
     query.add_for_query(contains_buckets, global_buckets_rtree, global_buckets_dict)
     if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
         return contains_buckets
+    else:
+        parent.delete_contains(contains_buckets)
+        
 
     # 处理和query相交的bucket
     tmp_rtree = index.Index(properties=p)
@@ -127,7 +130,7 @@ def feed_a_query(query: Bucket, root: Bucket):
         if is_close_to_zero(query.volume):
             return contains_buckets+composed
 
-    parent.delete_contains(contains_buckets)
+    
     add_global_bucket(query)
     parent.add_for_overlap(query)
     if is_close_to_zero(parent.volume):
