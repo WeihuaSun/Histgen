@@ -22,16 +22,21 @@ class Bucket:
         self.constraints = []  # 该Bucket由哪些约束组成
 
     def add_for_query(self, input, global_buckets_rtree, global_buckets_dict):
-        def add(bucket):
-            self._init_add(bucket)
-        assert isinstance(input, list)
+        # assert isinstance(input, list)
         for b in input:
-            add(b)
+            self._init_add(b)
         # update volume
-
-        contains = set(list(global_buckets_rtree.contains(self.coordinates)))
-        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
+        contains = set(global_buckets_rtree.contains(self.coordinates))
+        # update method 1
+        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
         # self.composed_ids = contains
+
+    def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
+        for b in input:
+            self._init_add(b)
+        contains = set(global_buckets_rtree.contains(self.coordinates))
+        # update method 1
+        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
 
     def add_for_overlap(self, input):
         def add(bucket):

@@ -68,9 +68,10 @@ def feed_a_overlap(query: Bucket, root: Bucket):
         bucket = parent.children[cid]
         cur_contains.append(bucket)
     global global_buckets_rtree, global_buckets_dict
-    query.add_for_query(cur_contains, global_buckets_rtree, global_buckets_dict)
+    query.add_for_query(cur_contains, global_buckets_rtree,
+                        global_buckets_dict)
     if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
-        return
+        return query
 
     # S4:处理和query相交的bucket
     tmp_rtree = index.Index(properties=p)
@@ -83,7 +84,8 @@ def feed_a_overlap(query: Bucket, root: Bucket):
         tmp_overlap_buckets.append((oid, (overlap, bucket)))
         tmp_rtree.insert(oid, overlap.coordinates)
 
-    overlaps_sorted = OrderedDict(sorted(tmp_overlap_buckets, key=lambda x: x[1][0].volume))
+    overlaps_sorted = OrderedDict(
+        sorted(tmp_overlap_buckets, key=lambda x: x[1][0].volume))
     valid_overlaps = []
     while overlaps_sorted:
         oid, (overlap, bucket) = overlaps_sorted.popitem()
@@ -139,7 +141,8 @@ def feed_a_query(query: Bucket, root: Bucket):
         bucket = parent.children[cid]
         cur_contains.append(bucket)
     global global_buckets_rtree, global_buckets_dict
-    query.add_for_query(cur_contains, global_buckets_rtree, global_buckets_dict)
+    query.add_for_query(cur_contains, global_buckets_rtree,
+                        global_buckets_dict)
     if is_close_to_zero(query.volume):  # 如果这些包含的bucket恰好可以组成query,则不添加query
         return
 
@@ -154,7 +157,8 @@ def feed_a_query(query: Bucket, root: Bucket):
         tmp_overlap_buckets.append((oid, (overlap, bucket)))
         tmp_rtree.insert(oid, overlap.coordinates)
 
-    overlaps_sorted = OrderedDict(sorted(tmp_overlap_buckets, key=lambda x: x[1][0].volume))
+    overlaps_sorted = OrderedDict(
+        sorted(tmp_overlap_buckets, key=lambda x: x[1][0].volume))
     valid_overlaps = []
     while overlaps_sorted:
         oid, (overlap, bucket) = overlaps_sorted.popitem()
@@ -267,4 +271,4 @@ def test():
     return hist
 
 
-test()
+#test()
