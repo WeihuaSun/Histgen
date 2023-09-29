@@ -4,13 +4,15 @@ import numpy as np
 
 class Bucket:
     def __init__(self, mins, maxs, card=0):
+        self.identifier = 0
         self.mins = mins
         self.maxs = maxs
         self.coordinates = mins+maxs
         self.card = card
         self.cover_card = card
-        self.children = dict()
-        self.parents = dict()
+        self.children = set()
+        self.hist_cs = set()
+        self.parents = set()
         self.volume = cacl_volume(mins, maxs)
         self.cover_volume = self.volume
         self.density = self.card/self.volume
@@ -18,18 +20,17 @@ class Bucket:
         p.dimension = len(self.mins)
         self.rtree = index.Index(properties=p)
         self.contain_buckets = set()
-        self.crid = 0
         self.constraints = []  # 该Bucket由哪些约束组成
 
     def add_for_query(self, input, global_buckets_rtree, global_buckets_dict):
-        # assert isinstance(input, list)
+        #print("add_for_query")
+        assert isinstance(input, list)
         for b in input:
             self._init_add(b)
         # update volume
         contains = set(global_buckets_rtree.contains(self.coordinates))
-        # update method 1
-        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
-        # self.composed_ids = contains
+        self.volume = self.cover_volume - \
+            np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
 
     def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
         for b in input:
@@ -39,48 +40,42 @@ class Bucket:
         self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
 
     def add_for_overlap(self, input):
-        def add(bucket):
-            self._init_add(bucket)
-        if isinstance(input, list):
-            # overlap is composed of some children buckets of dest bucket
-            # volume does not change
-            pass
-        else:
-            add(input)
-            self.volume -= input.volume
+        #print("add_for_overlap")
+        self._init_add(input)
+        self.volume -= input.volume
 
     def _init_add(self, bucket):
-        coordinates = bucket.mins+bucket.maxs
-        bucket.parents[self] = self.crid
-        self.rtree.insert(self.crid, coordinates)
-        self.children[self.crid] = bucket
-        self.crid += 1
+        assert bucket.identifier != 0
+        identifier = bucket.identifier
+        bucket.parents.add(self)
+        if identifier not in self.hist_cs:
+            self.rtree.insert(identifier, bucket.coordinates)
+        self.children.add(identifier)
+        self.hist_cs.add(identifier)
 
-    def delete_a_child(self, bucket, bid=None):
-        if bid == None:
-            bid = list(self.children.keys())[
-                list(self.children.values()).index(bucket)]
-        coordinates = bucket.mins+bucket.maxs
-        self.rtree.delete(bid, coordinates)
-        del self.children[bid]
+    def delete_a_child(self, bucket):
+        assert bucket.identifier != 0
+        identifier = bucket.identifier
+        bucket.parents.remove(self)
+        self.children.remove(identifier)
+        #self.rtree.delete(identifier, bucket.coordinates)
 
-    def delete_contains(self, bids, buckets):
-        for bid, bucket in zip(bids, buckets):
-            self.delete_a_child(bucket, bid)
+    def delete_contains(self, buckets):
+        for bucket in buckets:
+            self.delete_a_child(bucket)
 
-    def update_constraints(self, new_constraints):
-        self.constraints.append(new_constraints)
+    """ def update_constraints(self, new_constraints):
+        self.constraints.append(new_constraints) """
 
-    def merge_update(self, bucket, bid):
-        children = list(bucket.children.values())
-        self.delete_a_child(bucket, bid)
-        for c in children:
-            coordinates = c.mins+c.maxs
-            c.parents[self] = self.crid
-            self.rtree.insert(self.crid, coordinates)
-            self.children[self.crid] = bucket
-            self.composed_set |= bucket.composed_set
-            self.crid += 1
+    def merge_update(self, bucket, buckets_dict):
+        #print("merge_update")
+        identifier = bucket.identifier
+        assert identifier != 0
+        self.children.remove(identifier)
+        #self.rtree.delete(identifier, bucket.coordinates)
+        for c in bucket.children:
+            child = buckets_dict[c]
+            self._init_add(child)
 
 
 def cacl_volume(mins, maxs):
