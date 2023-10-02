@@ -9,7 +9,7 @@ class Bucket:
         self.maxs = maxs
         self.coordinates = mins+maxs
         self.card = card
-        self.cover_card = card
+        # self.cover_card = card
         self.children = set()
         self.hist_cs = set()
         self.parents = set()
@@ -19,18 +19,24 @@ class Bucket:
         p = index.Property()
         p.dimension = len(self.mins)
         self.rtree = index.Index(properties=p)
-        self.contain_buckets = set()
-        self.constraints = []  # 该Bucket由哪些约束组成
+        self.check_id = 0
+        self.feature_cover = 0
+        self.feature_father = 0
+        self.featured_children = set()
+        # self.contain_buckets = set()
+        # self.constraints = []  # 该Bucket由哪些约束组成
 
-    def add_for_query(self, input, global_buckets_rtree, global_buckets_dict):
-        #print("add_for_query")
-        assert isinstance(input, list)
-        for b in input:
-            self._init_add(b)
+    def add_for_query(self, input, global_buckets_rtree, global_buckets_dict, input_volume=0):
+        if isinstance(input, list):
+            for b in input:
+                self._init_add(b)
+        else:
+            self._init_add(input)
         # update volume
         contains = set(global_buckets_rtree.contains(self.coordinates))
         self.volume = self.cover_volume - \
-            np.sum([global_buckets_dict[bid].volume for bid in contains])  # update method 1
+            np.sum([global_buckets_dict[bid].volume for bid in contains]
+                   )  # update method 1
 
     def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
         for b in input:
@@ -40,7 +46,7 @@ class Bucket:
         self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
 
     def add_for_overlap(self, input):
-        #print("add_for_overlap")
+        # print("add_for_overlap")
         self._init_add(input)
         self.volume -= input.volume
 
@@ -58,7 +64,7 @@ class Bucket:
         identifier = bucket.identifier
         bucket.parents.remove(self)
         self.children.remove(identifier)
-        #self.rtree.delete(identifier, bucket.coordinates)
+        # self.rtree.delete(identifier, bucket.coordinates)
 
     def delete_contains(self, buckets):
         for bucket in buckets:
@@ -68,11 +74,11 @@ class Bucket:
         self.constraints.append(new_constraints) """
 
     def merge_update(self, bucket, buckets_dict):
-        #print("merge_update")
+        # print("merge_update")
         identifier = bucket.identifier
         assert identifier != 0
         self.children.remove(identifier)
-        #self.rtree.delete(identifier, bucket.coordinates)
+        # self.rtree.delete(identifier, bucket.coordinates)
         for c in bucket.children:
             child = buckets_dict[c]
             self._init_add(child)
