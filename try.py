@@ -1,11 +1,8 @@
-a = {
-}
+from rtree import index
 
-b = {
-    3:"bbbb"
-}
+rtree = index.Index()
 
-if a:
-    print("ss")
-else:
-    print("ssss")
+rtree.insert(0,[0,0,1,1])
+rtree.insert(1,[1,0,2,1])
+
+print(set(rtree.intersection([0,0,1,1])))

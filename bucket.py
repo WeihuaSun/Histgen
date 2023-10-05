@@ -2,6 +2,12 @@ from rtree import index
 import numpy as np
 
 
+class Container:
+    def __init__(self):
+        self.dataset = set()
+        self.data = None
+
+
 class Bucket:
     def __init__(self, mins, maxs, card=0):
         self.identifier = 0
@@ -9,41 +15,40 @@ class Bucket:
         self.maxs = maxs
         self.coordinates = mins+maxs
         self.card = card
-        # self.cover_card = card
         self.children = set()
-        self.hist_cs = set()
         self.parents = set()
+        self.overlap_with_query = Container()
         self.volume = cacl_volume(mins, maxs)
         self.cover_volume = self.volume
         self.density = self.card/self.volume
-        p = index.Property()
-        p.dimension = len(self.mins)
-        self.rtree = index.Index(properties=p)
-        self.check_id = 0
         self.feature_cover = 0
         self.feature_father = 0
         self.featured_children = set()
-        # self.contain_buckets = set()
-        # self.constraints = []  # 该Bucket由哪些约束组成
+        self.composed = set()
+        self.overlap_small_parent = [None]
 
-    def add_for_query(self, input, global_buckets_rtree, global_buckets_dict, input_volume=0):
+    def add_for_query(self, input, covers, global_buckets_rtree, global_buckets_dict, input_volume=0):
         if isinstance(input, list):
             for b in input:
                 self._init_add(b)
         else:
             self._init_add(input)
         # update volume
-        contains = set(global_buckets_rtree.contains(self.coordinates))
-        self.volume = self.cover_volume - \
-            np.sum([global_buckets_dict[bid].volume for bid in contains]
+        delta = covers-self.composed
+        self.volume = self.volume - \
+            np.sum([global_buckets_dict[bid].volume for bid in delta]
                    )  # update method 1
+        self.composed = self.composed | delta
 
     def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
         for b in input:
             self._init_add(b)
-        contains = set(global_buckets_rtree.contains(self.coordinates))
+        contains = set(global_buckets_rtree.contains(
+            self.coordinates)) - {self.identifier}
         # update method 1
-        self.volume -= np.sum([global_buckets_dict[bid].volume for bid in contains])
+        self.volume = self.cover_volume - \
+            np.sum([global_buckets_dict[bid].volume for bid in contains])
+        self.composed = contains
 
     def add_for_overlap(self, input):
         # print("add_for_overlap")
@@ -54,31 +59,23 @@ class Bucket:
         assert bucket.identifier != 0
         identifier = bucket.identifier
         bucket.parents.add(self)
-        if identifier not in self.hist_cs:
-            self.rtree.insert(identifier, bucket.coordinates)
         self.children.add(identifier)
-        self.hist_cs.add(identifier)
 
     def delete_a_child(self, bucket):
         assert bucket.identifier != 0
         identifier = bucket.identifier
         bucket.parents.remove(self)
         self.children.remove(identifier)
-        # self.rtree.delete(identifier, bucket.coordinates)
 
     def delete_contains(self, buckets):
         for bucket in buckets:
             self.delete_a_child(bucket)
-
-    """ def update_constraints(self, new_constraints):
-        self.constraints.append(new_constraints) """
 
     def merge_update(self, bucket, buckets_dict):
         # print("merge_update")
         identifier = bucket.identifier
         assert identifier != 0
         self.children.remove(identifier)
-        # self.rtree.delete(identifier, bucket.coordinates)
         for c in bucket.children:
             child = buckets_dict[c]
             self._init_add(child)
