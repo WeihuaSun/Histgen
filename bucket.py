@@ -8,6 +8,7 @@ class Container:
         self.data = None
         self.delta_composed = set()
         self.delta_cover = 0.
+        self.composed_set = set()
 
 
 class Bucket:

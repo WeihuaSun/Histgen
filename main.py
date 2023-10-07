@@ -1,7 +1,7 @@
 import argparse
 import pandas as pd
 import json
-
+from line_profiler import LineProfiler
 from dataset_utils import parse_plan_single
 from pathlib import Path
 

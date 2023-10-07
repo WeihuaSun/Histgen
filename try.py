@@ -32,7 +32,9 @@ def test():
     print(set_a)
     print(set_b)
 
-test()
+a = {}
+
+print(isinstance(a,set))
 
 
 
