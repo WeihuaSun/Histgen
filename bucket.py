@@ -6,6 +6,8 @@ class Container:
     def __init__(self):
         self.dataset = set()
         self.data = None
+        self.delta_composed = set()
+        self.delta_cover = 0.
 
 
 class Bucket:
@@ -21,11 +23,8 @@ class Bucket:
         self.volume = cacl_volume(mins, maxs)
         self.cover_volume = self.volume
         self.density = self.card/self.volume
-        self.feature_cover = 0
-        self.feature_father = 0
-        self.featured_children = set()
         self.composed = set()
-        self.overlap_small_parent = [None]
+
 
     def add_for_query(self, input, covers, global_buckets_rtree, global_buckets_dict, input_volume=0):
         if isinstance(input, list):
@@ -56,13 +55,11 @@ class Bucket:
         self.volume -= input.volume
 
     def _init_add(self, bucket):
-        assert bucket.identifier != 0
         identifier = bucket.identifier
         bucket.parents.add(self)
         self.children.add(identifier)
 
     def delete_a_child(self, bucket):
-        assert bucket.identifier != 0
         identifier = bucket.identifier
         bucket.parents.remove(self)
         self.children.remove(identifier)
@@ -74,7 +71,6 @@ class Bucket:
     def merge_update(self, bucket, buckets_dict):
         # print("merge_update")
         identifier = bucket.identifier
-        assert identifier != 0
         self.children.remove(identifier)
         for c in bucket.children:
             child = buckets_dict[c]
