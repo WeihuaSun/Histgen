@@ -8,11 +8,11 @@ from bucket import *
 from train_utils import *
 
 
-p = index.Property()
-p.dimension = 14
+property = index.Property()
 global_buckets_dict = dict()
-global_queries_rtree = index.Index(properties=p)
-identifier = 1
+global_queries_rtree = index.Index()
+identifier = 0
+global_intersections = dict()
 
 
 def deduplicate(buckets: List[Bucket]):
@@ -29,6 +29,15 @@ def deduplicate(buckets: List[Bucket]):
 def gen_global_rtree(buckets: List[Bucket]):
     for i, bucket in enumerate(buckets):
         global_queries_rtree.insert(i, bucket.coordinates)
+    return global_queries_rtree
+
+
+def get_intersection_for_each_query(querys: List[Bucket], rtree: index.Index):
+    query_intersection = dict()
+    for i, q in querys:
+        intersection = set(rtree.intersection(q.coordinates))
+        query_intersection[i] = intersection
+    return query_intersection
 
 
 def add_global_bucket(bucket: Bucket):
@@ -223,194 +232,6 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
         return cret_dataset, cret_composed, to_remove_compose_ids
 
 
-class Relation(object):
-    def __init__(self):
-        self.overlaps = set()
-        self.contains = set()
-        self.disjoints = set()
-        self.visited = set()
-
-    def add_overlaps(self, overlap):
-        self.overlaps.add(overlap)
-        self.visited.add(overlap)
-
-    def add_contains(self, contain):
-        self.contains.add(contain)
-        self.visited.add(contain)
-
-    def add_disjoints(self, disjoint):
-        self.disjoints.add(disjoint)
-
-
-""" def feed_a_query_new(query: Bucket, root: Bucket, input_relation: Relation):
-
-    best_parent = True
-    this_relation = Relation()
-    disjoints = this_relation.disjoints = input_relation.disjoints
-
-    query_contain_child_buckets = set()
-    query_contain_compose_ids = set()
-
-    parent_delta_compose_ids = set()
-    parent_delta_volume = 0
-
-    for id in root.children.copy():
-        bucket = global_buckets_dict[id]
-        if id in input_relation.overlaps:
-            if are_coincide(query, bucket.overlap_with_query.data):
-                best_parent = False
-                cret_dataset = bucket.overlap_with_query.dataset
-                cret_compose = bucket.overlap_with_query.composed_set
-                cret_delta_cover = 0
-                cret_delta_compose = set()
-            else:
-                this_relation.overlaps |= bucket.overlap_with_query.dataset
-                delta_compose = bucket.overlap_with_query.composed_set - this_relation.visited
-                parent_delta_volume.add
-                
-                
-
-                overlap_contain_compose_ids |= bucket.overlap_with_query.composed_set
-                dataset = bucket.overlap_with_query.dataset
-                if isinstance(dataset, set):
-                    overlap_contain_buckets |= dataset
-                else:
-                    overlap_contain_buckets.add(dataset)
-                to_remove_compose_ids |= bucket.overlap_with_query.to_remove
-            else:
-                query_contain_child_buckets.add(bucket) """
-
-
-def find_overlap_with_query(query: Bucket, root: Bucket, overlaps: set, input_visited: set, query_contains: set):
-    target = True  # 标记，指示root的孩子节点中是否有包含query的，若target=True，则root就是query的最小父节点，将query添加到root的孩子节点中
-    overlap_containers = []  # 保存root中的child和query相交产生的孩子
-    this_visited = set()  # 对于此root,标记此root中已经被计算cover面积的bucket
-
-    # 计算contains
-    query_contains_child_ids = root.children & query_contains
-
-    query_contains_child_composed = set()  # 包含在query中的，root_child的composed
-    for id in query_contains_child_ids:
-        child = global_buckets_dict[id]
-        query_contains_child_composed |= child.composed
-    ids_to_buckets = [global_buckets_dict[id] for id in query_contains_child_composed]
-    contains_child_cover_volume = np.sum([bucket.volume for bucket in ids_to_buckets])
-
-    # cacl_delta_cover and composed
-    c_delta_composed = query_contains_child_composed - input_visited
-    c_delta_cover = np.sum([global_buckets_dict[id].volume for id in c_delta_composed])
-
-    query_contains_child_buckets = set([global_buckets_dict[id] for id in query_contains_child_ids])
-
-    if are_floats_equal(contains_child_cover_volume, query.volume):
-        # 更新input_visited
-        input_visited |= c_delta_composed
-        return query_contains_child_buckets, c_delta_cover, c_delta_composed, query_contains_child_buckets
-    this_visited = query_contains_child_composed
-
-    for id in root.children.copy():
-        if id in overlaps:  # 和query相交
-            bucket = global_buckets_dict[id]
-            if id in input_visited:  # 已经被查过,在root的parent中的其他child被检查
-                if are_coincide(query, bucket.overlap_with_query.data):  # query已经被包含过
-                    target = False
-                    cret_dataset = bucket.overlap_with_query.dataset
-                    cret_delta_cover = 0
-                    cret_delta_composed = set()
-                    cret_composed = bucket.overlap_with_query.composed_set
-                else:
-                    this_visited |= bucket.overlap_with_query.composed_set
-                    bucket.overlap_with_query.delta_composed = bucket.overlap_with_query.composed_set - input_visited
-                    bucket.overlap_with_query.delta_volume = np.sum(
-                        [global_buckets_dict[i] for i in bucket.overlap_with_query.delta_composed])
-                    overlap_containers.append(bucket.overlap_with_query)
-            else:  # 未被查过
-                if are_contain(bucket, query):  # bucket包含query
-                    target = False
-                    bucket.overlap_with_query = root.overlap_with_query
-                    cret_dataset, cret_delta_cover, cret_delta_composed, cret_composed = find_overlap_with_query(
-                        query, bucket, overlaps, this_visited, query_contains)
-                    bucket.overlap_with_query.dataset = cret_dataset
-                    bucket.overlap_with_query.delta_cover = cret_delta_cover
-                    bucket.overlap_with_query.delta_composed = cret_delta_composed
-                    bucket.overlap_with_query.composed_set = cret_composed
-                else:  # bucket不包含query
-                    new_overlap = get_overlap(query, bucket)
-                    bucket.overlap_with_query = Container()
-                    bucket.overlap_with_query.data = new_overlap
-                    oret_dataset, oret_delta_cover, oret_delta_composed, oret_composed = find_overlap_with_query(
-                        new_overlap, bucket, overlaps, this_visited, query_contains)
-                    bucket.overlap_with_query.dataset = oret_dataset
-                    bucket.overlap_with_query.delta_cover = oret_delta_cover
-                    bucket.overlap_with_query.delta_composed = oret_delta_composed
-                    bucket.overlap_with_query.composed_set = oret_composed
-                    overlap_containers.append(bucket.overlap_with_query)
-                input_visited.add(id)
-    if target:  # 其孩子节点均不包含input
-        # 两个volume
-        # 1.root剩余的volume:volume_1
-        # 2.根据input_visited计算给parent增加的volume
-
-        # 处理input_visited
-
-        # 处理this_visited
-
-        # 计算volume_1
-        # step1:overlap_contains
-
-        overlap_contain_buckets = set()
-        overlap_cover_volume = 0
-        new_query_composed_ids = set()
-        for item in overlap_containers:
-            overlap_cover_volume += item.delta_cover
-            new_query_composed_ids |= item.delta_composed
-            dataset = item.dataset
-            if isinstance(dataset, set):
-                overlap_contain_buckets |= dataset
-            else:
-                overlap_contain_buckets.add(dataset)
-        query_contains |= new_query_composed_ids
-        cover_volume = contains_child_cover_volume + overlap_cover_volume
-        all_composed = new_query_composed_ids | query_contains_child_composed
-
-        valid_overlap_contain_buckets = cacl_valid_contains(overlap_contain_buckets, all_composed)
-
-        valid_contains = valid_overlap_contain_buckets | query_contains_child_buckets
-
-        o_delta_composed = new_query_composed_ids - input_visited
-        oc_delta_composed = o_delta_composed | c_delta_composed
-        o_delta_cover = np.sum([global_buckets_dict[id].volume for id in o_delta_composed])
-        oc_delta_cover = o_delta_cover+c_delta_cover
-
-        if are_floats_equal(cover_volume, query.volume):
-            input_visited |= oc_delta_composed
-            query.composed |= all_composed
-            root.composed |= query.composed
-            return valid_contains, oc_delta_cover, oc_delta_composed, all_composed
-        else:  # 添加
-            add_global_bucket(query)
-            query.composed |= all_composed
-            root.composed |= query.composed
-            # 删除root的children中属于query的
-            root.delete_contains(query_contains_child_buckets)
-            # 向query中添加bucket
-            for item in valid_contains:
-                query._init_add(item)
-            query.volume -= cover_volume
-            root.add_for_overlap(query)
-
-            oc_delta_composed.add(query.identifier)
-            oc_delta_cover += query.volume
-            input_visited |= oc_delta_composed
-
-            if is_close_to_zero(root.volume):
-                merge_bucket_with_parent(root)
-
-            return query, oc_delta_cover, oc_delta_composed, query.composed.copy()
-    else:
-        return cret_dataset, cret_delta_cover, cret_delta_composed, cret_composed
-
-
 def get_contains_naive(parent, query):
     init_contains = set()
     for cid in parent.children:
@@ -429,16 +250,28 @@ def feed_a_query_root(query: Bucket, root: Bucket):
     #find_overlap_with_query(query, parent, overlaps,visited, query_contains)
 
 
+
+class Max_Entropy(object):
+    def __init__(self):
+        pass
+    
+    
+
+
+
+
+
+
+
 def construct_histogram(queries, mins, maxs, num_tuples):
     print("Start Generate the Histogram...")
-    global global_buckets_dict
-    p.dimension = len(queries[0].mins)
-    root_bucket = Bucket(mins, maxs, num_tuples)
-    root_bucket.composed.add(0)
-    global_buckets_dict[0] = root_bucket
+    global global_buckets_dict, global_queries_rtree, identifier
     start = time.time()
+    root_bucket = Bucket(mins, maxs, num_tuples)
+    add_global_bucket(root_bucket)
     input_buckets = gen_query_buckets(queries)[:50]
-    gen_global_rtree(input_buckets)
+    query_rtree = gen_global_rtree(input_buckets)
+
     num_buckets = len(input_buckets)
     for i, bucket in enumerate(input_buckets):
         print(f"Construct Histogram Step [{i+1}/{num_buckets}]")
