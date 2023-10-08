@@ -8,6 +8,7 @@ rtree.insert(1,[1,0,2,1])
 
 print(set(rtree.intersection([0,0,1,1]))) """
 
+
 class Container:
     def __init__(self):
         self.dataset = set()
@@ -19,22 +20,33 @@ class Bucket:
         self.identifier = id
         self.overlap_with_query = Container()
 
+
 def test():
     a = Bucket(1)
     b = Bucket(2)
     c = Bucket(3)
-    set_a = {a,b}
-    
+    set_a = {a, b}
+
     set_b = set_a.copy()
-    
+
     set_a.add(c)
-    
+
     print(set_a)
     print(set_b)
 
-a = {}
 
-print(isinstance(a,set))
+a = set()
+b = set()
 
 
+a.add(1)
+a.add(2)
 
+b.add(2)
+b.add(3)
+
+a |= b
+
+b.add(4)
+
+print(a)

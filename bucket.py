@@ -1,4 +1,4 @@
-from rtree import index
+
 import numpy as np
 
 
@@ -9,6 +9,7 @@ class Container:
         self.delta_composed = set()
         self.delta_cover = 0.
         self.composed_set = set()
+        self.to_remove_set = set()
 
 
 class Bucket:
@@ -27,7 +28,7 @@ class Bucket:
         self.composed = set()
 
 
-    def add_for_query(self, input, covers, global_buckets_rtree, global_buckets_dict, input_volume=0):
+    """ def add_for_query(self, input, covers, global_buckets_rtree, global_buckets_dict, input_volume=0):
         if isinstance(input, list):
             for b in input:
                 self._init_add(b)
@@ -38,9 +39,9 @@ class Bucket:
         self.volume = self.volume - \
             np.sum([global_buckets_dict[bid].volume for bid in delta]
                    )  # update method 1
-        self.composed = self.composed | delta
+        self.composed = self.composed | delta """
 
-    def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
+    """ def add_for_contain(self, input, global_buckets_rtree, global_buckets_dict):
         for b in input:
             self._init_add(b)
         contains = set(global_buckets_rtree.contains(
@@ -48,7 +49,7 @@ class Bucket:
         # update method 1
         self.volume = self.cover_volume - \
             np.sum([global_buckets_dict[bid].volume for bid in contains])
-        self.composed = contains
+        self.composed = contains """
 
     def add_for_overlap(self, input):
         # print("add_for_overlap")
