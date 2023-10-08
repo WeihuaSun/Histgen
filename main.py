@@ -11,7 +11,6 @@ from hist_rtree import construct_histogram
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset',
                         type=str,

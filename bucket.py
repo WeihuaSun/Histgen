@@ -1,4 +1,6 @@
 
+from functools import reduce
+from operator import mul
 import numpy as np
 
 
@@ -26,7 +28,6 @@ class Bucket:
         self.cover_volume = self.volume
         self.density = self.card/self.volume
         self.composed = set()
-
 
     """ def add_for_query(self, input, covers, global_buckets_rtree, global_buckets_dict, input_volume=0):
         if isinstance(input, list):
@@ -81,9 +82,8 @@ class Bucket:
 
 def cacl_volume(mins, maxs):
     # 计算超立方体(Bucket)的体积
-    vol = 1.
-    for min, max in zip(mins, maxs):
-        vol *= (max-min)
+    deltas = np.array(maxs)-np.array(mins)
+    vol = np.prod(deltas,dtype=np.int64)
     return vol
 
 
