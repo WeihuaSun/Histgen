@@ -132,6 +132,8 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
     overlap_contain_buckets = set()
     overlap_contain_compose_ids = set()
 
+    to_remove_compose_ids = set()
+
     for id in root.children.copy():
         bucket = global_buckets_dict[id]
         if id in overlaps:
@@ -139,6 +141,7 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
                 best_parent = False
                 cret_dataset = bucket.overlap_with_query.dataset
                 cret_composed = bucket.overlap_with_query.composed_set
+                to_remove_compose_ids |= bucket.overlap_with_query.to_remove
             else:
                 overlap_contain_compose_ids |= bucket.overlap_with_query.composed_set
                 dataset = bucket.overlap_with_query.dataset
@@ -146,12 +149,12 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
                     overlap_contain_buckets |= dataset
                 else:
                     overlap_contain_buckets.add(dataset)
-
+                to_remove_compose_ids |= bucket.overlap_with_query.to_remove
         elif id in contains:
             query_contain_child_buckets.add(bucket)
             query_contain_compose_ids |= bucket.composed
         elif id in disjoints:
-            print("disjoints")
+            continue
         else:  # 未被查过
             if are_disjoint(query, bucket):
                 disjoints.add(id)
@@ -164,24 +167,28 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
                     if are_contain(bucket, query):  # bucket包含query
                         best_parent = False
                         bucket.overlap_with_query = root.overlap_with_query
-                        cret_dataset, cret_composed = feed_a_query_naive(query, bucket, overlaps, contains, disjoints)
+                        cret_dataset, cret_composed, cret_to_remove = feed_a_query_naive(
+                            query, bucket, overlaps, contains, disjoints)
                         bucket.overlap_with_query.dataset = cret_dataset
                         bucket.overlap_with_query.composed_set = cret_composed
+                        bucket.overlap_with_query.to_remove = cret_to_remove
+                        to_remove_compose_ids |= cret_to_remove
                     else:  # bucket不包含query
                         new_overlap = get_overlap(query, bucket)
                         bucket.overlap_with_query = Container()
                         bucket.overlap_with_query.data = new_overlap
-                        oret_dataset, oret_composed = feed_a_query_naive(
+                        oret_dataset, oret_composed, oret_to_remove = feed_a_query_naive(
                             new_overlap, bucket, overlaps, contains, disjoints)
                         bucket.overlap_with_query.dataset = oret_dataset
                         bucket.overlap_with_query.composed_set = oret_composed
+                        bucket.overlap_with_query.to_remove = oret_to_remove
                         overlap_contain_compose_ids |= oret_composed
                         if isinstance(oret_dataset, set):
                             overlap_contain_buckets |= oret_dataset
                         else:
                             overlap_contain_buckets.add(oret_dataset)
+                        to_remove_compose_ids |= oret_to_remove
                     overlaps.add(id)
-
     if best_parent:
         query_compose_ids = overlap_contain_compose_ids | query_contain_compose_ids
         query_compose_buckets = ids_2_buckets(query_compose_ids)
@@ -191,11 +198,13 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
 
         if are_floats_equal(compose_volume, query.volume):
             root.composed |= query_compose_ids
-            return valid_contain_buckets, query_compose_ids
+            root.composed -= to_remove_compose_ids
+            return valid_contain_buckets, query_compose_ids, to_remove_compose_ids
         else:
             add_global_bucket(query)
             query.composed |= query_compose_ids
             root.composed |= query.composed
+            root.composed -= to_remove_compose_ids
             # 删除root的children中属于query的
             root.delete_contains(query_contain_child_buckets)
             # 向query中添加bucket
@@ -205,11 +214,71 @@ def feed_a_query_naive(query: Bucket, root: Bucket, overlaps: set, contains: set
             root.add_for_overlap(query)
             if is_close_to_zero(root.volume):
                 merge_bucket_with_parent(root)
-            return query, query.composed.copy()
+                to_remove_compose_ids.add(root.identifier)
+            return query, query.composed.copy(), to_remove_compose_ids
 
     else:
         root.composed |= cret_composed
-        return cret_dataset, cret_composed
+        root.composed -= to_remove_compose_ids
+        return cret_dataset, cret_composed, to_remove_compose_ids
+
+
+class Relation(object):
+    def __init__(self):
+        self.overlaps = set()
+        self.contains = set()
+        self.disjoints = set()
+        self.visited = set()
+
+    def add_overlaps(self, overlap):
+        self.overlaps.add(overlap)
+        self.visited.add(overlap)
+
+    def add_contains(self, contain):
+        self.contains.add(contain)
+        self.visited.add(contain)
+
+    def add_disjoints(self, disjoint):
+        self.disjoints.add(disjoint)
+
+
+""" def feed_a_query_new(query: Bucket, root: Bucket, input_relation: Relation):
+
+    best_parent = True
+    this_relation = Relation()
+    disjoints = this_relation.disjoints = input_relation.disjoints
+
+    query_contain_child_buckets = set()
+    query_contain_compose_ids = set()
+
+    parent_delta_compose_ids = set()
+    parent_delta_volume = 0
+
+    for id in root.children.copy():
+        bucket = global_buckets_dict[id]
+        if id in input_relation.overlaps:
+            if are_coincide(query, bucket.overlap_with_query.data):
+                best_parent = False
+                cret_dataset = bucket.overlap_with_query.dataset
+                cret_compose = bucket.overlap_with_query.composed_set
+                cret_delta_cover = 0
+                cret_delta_compose = set()
+            else:
+                this_relation.overlaps |= bucket.overlap_with_query.dataset
+                delta_compose = bucket.overlap_with_query.composed_set - this_relation.visited
+                parent_delta_volume.add
+                
+                
+
+                overlap_contain_compose_ids |= bucket.overlap_with_query.composed_set
+                dataset = bucket.overlap_with_query.dataset
+                if isinstance(dataset, set):
+                    overlap_contain_buckets |= dataset
+                else:
+                    overlap_contain_buckets.add(dataset)
+                to_remove_compose_ids |= bucket.overlap_with_query.to_remove
+            else:
+                query_contain_child_buckets.add(bucket) """
 
 
 def find_overlap_with_query(query: Bucket, root: Bucket, overlaps: set, input_visited: set, query_contains: set):

@@ -11,7 +11,7 @@ class Container:
         self.delta_composed = set()
         self.delta_cover = 0.
         self.composed_set = set()
-        self.to_remove_set = set()
+        self.to_remove = set()
 
 
 class Bucket:
